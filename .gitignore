@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+env/
+
+# MLflow (SQLite DB — ephemeral on cloud, don't commit)
+mlflow.db
+mlruns/
+
+# Large raw data (commit only sampled CSVs)
+# data/train_fe_smote.csv    ← too large, exclude
+data/train_fe_smote.csv
+
+# Artifacts (auto-generated during training)
+artifacts/
+
+# OS
+.DS_Store
+Thumbs.db.gitattributes
