@@ -1,0 +1,27 @@
+# EMIPredict AI v3 — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Core data science
+pandas==2.1.4
+numpy==1.26.4
+scikit-learn==1.4.2
+xgboost==2.0.3
+scipy==1.12.0
+
+# Class balancing (SMOTE)
+imbalanced-learn==0.12.3
+
+# Web application
+streamlit==1.35.0
+
+# Visualisation
+plotly==5.22.0
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# Model persistence
+joblib==1.3.2
+
+# Model download from Google Drive
+gdown==5.1.0
+
