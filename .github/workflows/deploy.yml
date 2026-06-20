@@ -1,0 +1,96 @@
+name: EMIPredict AI — CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ── JOB 1: Lint & Syntax Check ──────────────────────────────
+  lint:
+    name: 🔍 Syntax Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Check Python syntax on all files
+        run: |
+          echo "Checking syntax..."
+          python -m py_compile app.py
+          python -m py_compile predict_utils.py
+          python -m py_compile download_models.py
+          python -m py_compile step1_data_preprocessing.py
+          python -m py_compile step3_feature_engineering.py
+          python -m py_compile step4_train_models.py
+          python -m py_compile pages/home.py
+          python -m py_compile pages/predict.py
+          python -m py_compile pages/eda_page.py
+          python -m py_compile pages/mlflow_page.py
+          python -m py_compile pages/crud_page.py
+          echo "✅ All files passed syntax check."
+
+  # ── JOB 2: Dependency Check ──────────────────────────────────
+  dependencies:
+    name: 📦 Dependency Check
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          echo "✅ All dependencies installed successfully."
+
+      - name: Verify key imports
+        run: |
+          python -c "
+          import pandas, numpy, sklearn, xgboost, streamlit, plotly, joblib, gdown
+          from imblearn.over_sampling import SMOTE
+          print('✅ All key packages import successfully.')
+          print(f'   pandas   : {pandas.__version__}')
+          print(f'   sklearn  : {sklearn.__version__}')
+          print(f'   xgboost  : {xgboost.__version__}')
+          print(f'   streamlit: {streamlit.__version__}')
+          "
+
+  # ── JOB 3: Notify on Success ─────────────────────────────────
+  notify:
+    name: 🚀 Deploy Ready
+    runs-on: ubuntu-latest
+    needs: [lint, dependencies]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deployment status
+        run: |
+          echo "============================================"
+          echo "✅ All checks passed!"
+          echo "🚀 Streamlit Cloud will auto-deploy from:"
+          echo "   Branch : main"
+          echo "   File   : app.py"
+          echo "============================================"

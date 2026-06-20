@@ -1,0 +1,22 @@
+[theme]
+# Navy Blue theme
+primaryColor             = "#4fc3f7"
+backgroundColor          = "#0a1628"
+secondaryBackgroundColor = "#112240"
+textColor                = "#e8f0fe"
+font                     = "sans serif"
+
+[server]
+# Keep alive for Streamlit Cloud
+maxUploadSize       = 50
+enableCORS          = false
+enableXsrfProtection = true
+
+[browser]
+# Shown in browser tab
+serverAddress       = "localhost"
+gatherUsageStats    = false
+
+[runner]
+# Faster reruns
+fastReruns          = true
