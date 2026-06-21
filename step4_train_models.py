@@ -39,7 +39,10 @@ from sklearn.metrics import (
     confusion_matrix, mean_squared_error, mean_absolute_error,
     r2_score,
 )
+from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
 from xgboost import XGBClassifier, XGBRegressor
+
+CV_FOLDS = 3   # 3-fold keeps runtime reasonable on large datasets
 
 warnings.filterwarnings("ignore")
 import logging
@@ -186,8 +189,36 @@ def train_classifier(name, model, params,
                            "n_features": len(feat_cols),
                            "smote_balanced": True})
 
+        # ── Cross-Validation (3-fold StratifiedKFold) ────────
+        print(f"    Running {CV_FOLDS}-fold CV…", end="", flush=True)
+        skf = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True,
+                              random_state=RANDOM_STATE)
+        cv_f1  = cross_val_score(model, X_tr, y_tr, cv=skf,
+                                 scoring="f1_weighted", n_jobs=-1)
+        cv_acc = cross_val_score(model, X_tr, y_tr, cv=skf,
+                                 scoring="accuracy",    n_jobs=-1)
+        cv_f1_mean,  cv_f1_std  = float(cv_f1.mean()),  float(cv_f1.std())
+        cv_acc_mean, cv_acc_std = float(cv_acc.mean()), float(cv_acc.std())
+        mlflow.log_metrics({
+            "cv_f1_mean" : cv_f1_mean,  "cv_f1_std" : cv_f1_std,
+            "cv_acc_mean": cv_acc_mean, "cv_acc_std": cv_acc_std,
+        })
+        print(f" done")
+        print(f"    CV    F1={cv_f1_mean:.4f} ± {cv_f1_std:.4f}  "
+              f"Acc={cv_acc_mean:.4f} ± {cv_acc_std:.4f}")
+        mlflow.log_params({"cv_folds": CV_FOLDS, "cv_strategy": "StratifiedKFold"})
+
         # ── Train on full training set ────────────────────
         model.fit(X_tr, y_tr)
+
+        # Train metrics (subset for speed on large datasets)
+        sample_idx = np.random.choice(len(X_tr),
+                                      size=min(20000, len(X_tr)),
+                                      replace=False)
+        y_ptr  = model.predict(X_tr[sample_idx])
+        y_pppt = (model.predict_proba(X_tr[sample_idx])
+                  if hasattr(model, "predict_proba") else None)
+        trm    = clf_metrics(y_tr[sample_idx], y_ptr, y_pppt)
 
         y_pv  = model.predict(X_va);  y_pt = model.predict(X_te)
         y_ppv = (model.predict_proba(X_va)
@@ -197,15 +228,30 @@ def train_classifier(name, model, params,
 
         vm = clf_metrics(y_va, y_pv, y_ppv)
         tm = clf_metrics(y_te, y_pt, y_ppt)
-        mlflow.log_metrics({f"val_{k}":  v for k, v in vm.items()})
-        mlflow.log_metrics({f"test_{k}": v for k, v in tm.items()})
+        mlflow.log_metrics({f"train_{k}": v for k, v in trm.items()})
+        mlflow.log_metrics({f"val_{k}":   v for k, v in vm.items()})
+        mlflow.log_metrics({f"test_{k}":  v for k, v in tm.items()})
 
+        # ── Overfitting / Underfitting diagnosis ──────────────
+        acc_gap = trm["accuracy"] - tm["accuracy"]
+        if trm["accuracy"] < 0.75:
+            diagnosis = "⚠️  UNDERFITTING  (train accuracy too low)"
+        elif acc_gap > 0.10:
+            diagnosis = f"⚠️  OVERFITTING   (train−test gap = {acc_gap:.3f})"
+        elif acc_gap > 0.05:
+            diagnosis = f"🟡  MILD OVERFIT  (train−test gap = {acc_gap:.3f})"
+        else:
+            diagnosis = f"✅  GOOD FIT      (train−test gap = {acc_gap:.3f})"
+        mlflow.log_metric("train_test_acc_gap", acc_gap)
+
+        print(f"    Train Acc={trm['accuracy']:.4f}  F1={trm['f1_score']:.4f}")
         print(f"    Val   Acc={vm['accuracy']:.4f}  Prec={vm['precision']:.4f}  "
               f"Rec={vm['recall']:.4f}  F1={vm['f1_score']:.4f}  "
               f"AUC={vm.get('roc_auc', 0):.4f}")
         print(f"    Test  Acc={tm['accuracy']:.4f}  Prec={tm['precision']:.4f}  "
               f"Rec={tm['recall']:.4f}  F1={tm['f1_score']:.4f}  "
               f"AUC={tm.get('roc_auc', 0):.4f}")
+        print(f"    {diagnosis}")
 
         sn   = name.replace(" ", "_")
         cm_p = f"artifacts/cm_{sn}.png"
@@ -245,19 +291,58 @@ def train_regressor(name, model, params,
         mlflow.log_params({**params, "model_name": name,
                            "n_features": len(feat_cols)})
 
+        # ── Cross-Validation (3-fold KFold) ──────────────────
+        print(f"    Running {CV_FOLDS}-fold CV…", end="", flush=True)
+        kf = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
+        cv_r2   = cross_val_score(model, X_tr, y_tr, cv=kf,
+                                  scoring="r2",              n_jobs=-1)
+        cv_rmse = cross_val_score(model, X_tr, y_tr, cv=kf,
+                                  scoring="neg_root_mean_squared_error", n_jobs=-1)
+        cv_r2_mean,   cv_r2_std   = float(cv_r2.mean()),    float(cv_r2.std())
+        cv_rmse_mean, cv_rmse_std = float(-cv_rmse.mean()), float(cv_rmse.std())
+        mlflow.log_metrics({
+            "cv_r2_mean"  : cv_r2_mean,   "cv_r2_std"  : cv_r2_std,
+            "cv_rmse_mean": cv_rmse_mean, "cv_rmse_std": cv_rmse_std,
+        })
+        print(f" done")
+        print(f"    CV    R²={cv_r2_mean:.4f} ± {cv_r2_std:.4f}  "
+              f"RMSE=₹{cv_rmse_mean:,.2f} ± {cv_rmse_std:,.2f}")
+        mlflow.log_params({"cv_folds": CV_FOLDS, "cv_strategy": "KFold"})
+
         # ── Train on full training set ────────────────────
         model.fit(X_tr, y_tr)
+
+        # Train metrics (subset for speed)
+        sample_idx = np.random.choice(len(X_tr),
+                                      size=min(20000, len(X_tr)),
+                                      replace=False)
+        trm  = reg_metrics(y_tr[sample_idx], model.predict(X_tr[sample_idx]))
 
         y_pv = model.predict(X_va); y_pt = model.predict(X_te)
         vm   = reg_metrics(y_va, y_pv)
         tm   = reg_metrics(y_te, y_pt)
-        mlflow.log_metrics({f"val_{k}":  v for k, v in vm.items()})
-        mlflow.log_metrics({f"test_{k}": v for k, v in tm.items()})
+        mlflow.log_metrics({f"train_{k}": v for k, v in trm.items()})
+        mlflow.log_metrics({f"val_{k}":   v for k, v in vm.items()})
+        mlflow.log_metrics({f"test_{k}":  v for k, v in tm.items()})
 
+        # ── Overfitting / Underfitting diagnosis ──────────────
+        r2_gap = trm["r2"] - tm["r2"]
+        if trm["r2"] < 0.60:
+            diagnosis = "⚠️  UNDERFITTING  (train R² too low)"
+        elif r2_gap > 0.15:
+            diagnosis = f"⚠️  OVERFITTING   (train−test R² gap = {r2_gap:.3f})"
+        elif r2_gap > 0.07:
+            diagnosis = f"🟡  MILD OVERFIT  (train−test R² gap = {r2_gap:.3f})"
+        else:
+            diagnosis = f"✅  GOOD FIT      (train−test R² gap = {r2_gap:.3f})"
+        mlflow.log_metric("train_test_r2_gap", r2_gap)
+
+        print(f"    Train RMSE=₹{trm['rmse']:>8,.2f}  R²={trm['r2']:.4f}")
         print(f"    Val   RMSE=₹{vm['rmse']:>8,.2f}  "
               f"MAE=₹{vm['mae']:>8,.2f}  R²={vm['r2']:.4f}  MAPE={vm['mape']:.2f}%")
         print(f"    Test  RMSE=₹{tm['rmse']:>8,.2f}  "
               f"MAE=₹{tm['mae']:>8,.2f}  R²={tm['r2']:.4f}  MAPE={tm['mape']:.2f}%")
+        print(f"    {diagnosis}")
 
         sn        = name.replace(" ", "_")
         residuals = y_te - y_pt
@@ -290,18 +375,55 @@ def train_regressor(name, model, params,
 def register_best_model(results, experiment,
                          metric_key, higher_is_better,
                          registry_name):
+    from mlflow.tracking import MlflowClient
+
     best = (max if higher_is_better else min)(
         results, key=lambda x: x["test_metrics"][metric_key]
     )
     print(f"\n🏆 Best {experiment}: {best['name']}"
           f"  ({metric_key}={best['test_metrics'][metric_key]:.4f})")
+
+    client = MlflowClient()
+
     try:
+        # ── Register model ────────────────────────────────────
         mv = mlflow.register_model(
             f"runs:/{best['run_id']}/model", registry_name
         )
         print(f"   Registered as '{registry_name}' v{mv.version}")
+
+        # ── Archive any existing Production versions ───────────
+        for v in client.search_model_versions(f"name='{registry_name}'"):
+            if v.current_stage == "Production" and v.version != mv.version:
+                client.transition_model_version_stage(
+                    name=registry_name,
+                    version=v.version,
+                    stage="Archived",
+                )
+                print(f"   Archived previous Production v{v.version}")
+
+        # ── Promote best model to Production ──────────────────
+        client.transition_model_version_stage(
+            name=registry_name,
+            version=mv.version,
+            stage="Production",
+        )
+        print(f"   ✅ Promoted v{mv.version} → Production")
+
+        # ── Set description ───────────────────────────────────
+        client.update_model_version(
+            name=registry_name,
+            version=mv.version,
+            description=(
+                f"Best model: {best['name']} | "
+                f"{metric_key}={best['test_metrics'][metric_key]:.4f} | "
+                f"Auto-promoted by step4_train_models.py"
+            ),
+        )
+
     except Exception as e:
         print(f"   Registry note (non-fatal): {e}")
+
     return best
 
 

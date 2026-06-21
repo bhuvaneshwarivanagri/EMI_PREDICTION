@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
-@st.cache_data(ttl=60, show_spinner="Fetching MLflow runs…")
+@st.cache_data(ttl=30, show_spinner="Fetching MLflow runs…")
 def fetch_runs(experiment_name: str) -> pd.DataFrame:
     import mlflow
     mlflow.set_tracking_uri("sqlite:///mlflow.db")
@@ -22,6 +22,7 @@ def fetch_runs(experiment_name: str) -> pd.DataFrame:
         runs = mlflow.search_runs(
             experiment_ids=[exp.experiment_id],
             order_by=["start_time DESC"],
+            filter_string="status = 'FINISHED'",   # only completed runs
         )
         return runs
     except Exception:
@@ -47,27 +48,37 @@ REG_DISPLAY = {
 
 
 def _build_clf_table(runs: pd.DataFrame) -> pd.DataFrame:
-    cols = ["tags.mlflow.runName"] + [f"metrics.{m}" for m in CLF_METRICS]
+    cols = ["tags.mlflow.runName", "start_time"] + [f"metrics.{m}" for m in CLF_METRICS]
     avail = [c for c in cols if c in runs.columns]
     df = runs[avail].copy().dropna(subset=["tags.mlflow.runName"])
     df = df.rename(columns={
         "tags.mlflow.runName": "Model",
         **{f"metrics.{k}": v for k, v in CLF_DISPLAY.items()},
     })
-    df = df.drop_duplicates(subset=["Model"]).reset_index(drop=True)
-    return df
+    # Keep only the LATEST run per model name
+    if "start_time" in df.columns:
+        df = df.sort_values("start_time", ascending=False)
+        df = df.drop_duplicates(subset=["Model"]).drop(columns=["start_time"])
+    else:
+        df = df.drop_duplicates(subset=["Model"])
+    return df.reset_index(drop=True)
 
 
 def _build_reg_table(runs: pd.DataFrame) -> pd.DataFrame:
-    cols = ["tags.mlflow.runName"] + [f"metrics.{m}" for m in REG_METRICS]
+    cols = ["tags.mlflow.runName", "start_time"] + [f"metrics.{m}" for m in REG_METRICS]
     avail = [c for c in cols if c in runs.columns]
     df = runs[avail].copy().dropna(subset=["tags.mlflow.runName"])
     df = df.rename(columns={
         "tags.mlflow.runName": "Model",
         **{f"metrics.{k}": v for k, v in REG_DISPLAY.items()},
     })
-    df = df.drop_duplicates(subset=["Model"]).reset_index(drop=True)
-    return df
+    # Keep only the LATEST run per model name
+    if "start_time" in df.columns:
+        df = df.sort_values("start_time", ascending=False)
+        df = df.drop_duplicates(subset=["Model"]).drop(columns=["start_time"])
+    else:
+        df = df.drop_duplicates(subset=["Model"])
+    return df.reset_index(drop=True)
 
 
 def _highlight_best_clf(df: pd.DataFrame):
@@ -90,9 +101,36 @@ def _highlight_best_reg(df: pd.DataFrame):
     return styled
 
 
+def _get_production_model(registry_name: str) -> str:
+    """Return the Production model version info, or empty string."""
+    try:
+        import mlflow
+        from mlflow.tracking import MlflowClient
+        mlflow.set_tracking_uri("sqlite:///mlflow.db")
+        client = MlflowClient()
+        versions = client.search_model_versions(f"name='{registry_name}'")
+        for v in versions:
+            if v.current_stage == "Production":
+                return f"v{v.version} — {v.description or v.run_id[:8]}"
+    except Exception:
+        pass
+    return ""
+
+
 def show():
     st.title("📈 Model Performance")
     st.markdown("Compare all trained models using test-set metrics tracked in **MLflow**.")
+
+    # ── Production model badges ───────────────────────────────
+    clf_prod = _get_production_model("EMI_Best_Classifier")
+    reg_prod = _get_production_model("EMI_Best_Regressor")
+    if clf_prod or reg_prod:
+        c1, c2 = st.columns(2)
+        if clf_prod:
+            c1.success(f"🏭 **Production Classifier:** {clf_prod}")
+        if reg_prod:
+            c2.success(f"🏭 **Production Regressor:** {reg_prod}")
+
     st.divider()
 
     import os

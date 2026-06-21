@@ -15,12 +15,12 @@ os.makedirs("models", exist_ok=True)
 # https://drive.google.com/file/d/FILE_ID_HERE/view?usp=sharing
 
 MODEL_FILES = {
-    "models/best_classifier.pkl"     : "1fTOTTGdwA-9KGGLmPM1RQQDywKkb4fZ_",
-    "models/best_regressor.pkl"      : "1vgwD6weYeusYh5GI76mx-1E4K2vKMsz2",
-    "models/scaler.pkl"              : "1zC7woSZOoXJjS180vtZ6ulnM1Efv7GUi",
-    "models/encoders.pkl"            : "1r27Xba6aMQwMk8ouIJnPiDp1JQ7PxrNR",
-    "models/feature_cols.pkl"        : "1V2zH-IHmRdA9H7PfJHRCNd_4BLmRBBfl",
-    "models/log_transformed_cols.pkl": "152oJEH0MvNEtq9ZmUC0lntVF4xE8im10",
+    "models/best_classifier.pkl"     : "1b86SVZiN-0vX6IKmibhsuYR5CbZ9rylK",
+    "models/best_regressor.pkl"      : "1GGTXNaqaJ_VOG5CS1IRcXs9z4gA-WGl4",
+    "models/scaler.pkl"              : "1xQ-VLMcoBJqH6bld7IIu8zSq6d2xODhA",
+    "models/encoders.pkl"            : "1aM8PR8RiLakyX7WZ7l-TmYyHfa-qWNO5",
+    "models/feature_cols.pkl"        : "1vyUZv0p5JX5AcOQIiL1kt3q21Ro2UdpP",
+    "models/log_transformed_cols.pkl": "1d43KcDZgWuSm-K3Zlm_Zdafwi5wdeHZv",
 }
 
 
